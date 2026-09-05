@@ -19,7 +19,7 @@ env:
   #   both     … 両方
   # approve を使う場合、リポジトリ設定の
   # "Allow GitHub Actions to create and approve pull requests" が有効である必要がある。
-  MODE: comment
+  MODE: both
 
 jobs:
   report:
