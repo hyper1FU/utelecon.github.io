@@ -9,13 +9,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build_base:
+  # A: base.sha (現行の実装)
+  build_base_a:
     runs-on: ubuntu-latest
     if: github.event.pull_request.user.login == 'hyper1FU'
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.base.sha }}
+      - run: echo "base_a = $(git rev-parse HEAD)"
       - uses: actions/setup-node@v6
         with:
           node-version: 24
@@ -24,17 +26,25 @@ jobs:
       - run: npm run build
       - uses: actions/upload-artifact@v7
         with:
-          name: dist-base
+          name: dist-base-a
           path: dist/
           include-hidden-files: true
 
-  build_pr:
+  # B: refs/pull/N/merge^1 (マージ ref が計算された時点の master)
+  build_base_b:
     runs-on: ubuntu-latest
     if: github.event.pull_request.user.login == 'hyper1FU'
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: refs/pull/${{ github.event.pull_request.number }}/merge
+          fetch-depth: 2
+      - name: Move to the base parent of the merge commit
+        run: |
+          echo "merge   = $(git rev-parse HEAD)"
+          git checkout HEAD^1
+          echo "base_b  = $(git rev-parse HEAD)"
+          echo "payload base.sha = ${{ github.event.pull_request.base.sha }}"
       - uses: actions/setup-node@v6
         with:
           node-version: 24
@@ -43,55 +53,61 @@ jobs:
       - run: npm run build
       - uses: actions/upload-artifact@v7
         with:
-          name: dist-pr
+          name: dist-base-b
+          path: dist/
+          include-hidden-files: true
+
+  # head: refs/pull/N/merge (マージ後)
+  build_merge:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.user.login == 'hyper1FU'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: refs/pull/${{ github.event.pull_request.number }}/merge
+      - run: echo "merge = $(git rev-parse HEAD)"
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist-merge
           path: dist/
           include-hidden-files: true
 
   compare:
-    needs: [build_base, build_pr]
+    needs: [build_base_a, build_base_b, build_merge]
     runs-on: ubuntu-latest
     if: github.event.pull_request.user.login == 'hyper1FU'
     steps:
       - uses: actions/download-artifact@v8
-        with:
-          name: dist-base
-          path: dist-base/
+        with: { name: dist-base-a, path: dist-base-a/ }
       - uses: actions/download-artifact@v8
-        with:
-          name: dist-pr
-          path: dist-pr/
-      - name: Compare
+        with: { name: dist-base-b, path: dist-base-b/ }
+      - uses: actions/download-artifact@v8
+        with: { name: dist-merge, path: dist-merge/ }
+      - name: Compare B and C
         run: |
-          diff -r  dist-base/ dist-pr/ >diff.txt       || true
-          diff -rq dist-base/ dist-pr/ >diff-brief.txt || true
-
-          count=$(wc -l <diff-brief.txt)
-          if [ "$count" -eq 0 ]; then
-            echo 'No differences found between the base and the PR build.' >>"$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-
+          diff -rq dist-base-b/ dist-merge/ >b.txt || true
+          diff -rq dist-base-a/ dist-merge/ >c.txt || true
+          diff -rq dist-base-a/ dist-base-b/ >bases.txt || true
+          b=$(wc -l <b.txt); c=$(wc -l <c.txt); s=$(wc -l <bases.txt)
           {
-            echo "Differences found in $count file(s)."
-            echo
-            echo '<details><summary>Changed files</summary>'
-            echo
-            echo '```'
-            head -n 100 diff-brief.txt
-            if [ "$count" -gt 100 ]; then
-              echo "... and $((count - 100)) more."
-            fi
-            echo '```'
-            echo
-            echo '</details>'
-            echo
-            echo 'Download the `diff` artifact of this run for the full output.'
+            echo '| Comparison | Differing files |'
+            echo '|---|---:|'
+            echo "| B: \`merge^1\` vs \`merge\` | $b |"
+            echo "| C: \`base.sha\` vs \`merge\` | $c |"
+            echo "| base.sha build vs merge^1 build | $s |"
           } >>"$GITHUB_STEP_SUMMARY"
-          exit 1
+          echo "B=$b C=$c BASES=$s"
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: diff
+          name: refcheck
           path: |
-            diff.txt
-            diff-brief.txt
+            b.txt
+            c.txt
+            bases.txt
