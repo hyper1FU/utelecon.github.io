@@ -19,7 +19,7 @@ env:
   #   both     … 両方
   # approve を使う場合、リポジトリ設定の
   # "Allow GitHub Actions to create and approve pull requests" が有効である必要がある。
-  MODE: comment
+  MODE: both
 
 jobs:
   report:
@@ -80,12 +80,37 @@ jobs:
             echo "Created a new comment"
           fi
 
+      # 差分がなければ approve する。既に自分の承認があれば何もしない (冪等)。
       - name: Approve when there is no difference
         if: steps.report.outcome == 'success' && steps.report.outputs.count == '0' && (env.MODE == 'approve' || env.MODE == 'both')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ steps.report.outputs.pr }}
         run: |
+          existing=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR/reviews" --paginate \
+            --jq '[.[] | select(.user.login == "github-actions[bot]" and .state == "APPROVED")] | length')
+
+          if [ "$existing" -gt 0 ]; then
+            echo 'Already approved. Nothing to do.'
+            exit 0
+          fi
+
           gh api -X POST "repos/$GITHUB_REPOSITORY/pulls/$PR/reviews" \
             -f event=APPROVE \
             -f body='The build output is identical to the base branch.'
+
+      # 差分が出たのに以前の承認が残っている場合は取り消す。
+      - name: Dismiss a stale approval when differences appear
+        if: steps.report.outcome == 'success' && steps.report.outputs.count != '0' && (env.MODE == 'approve' || env.MODE == 'both')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ steps.report.outputs.pr }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR/reviews" --paginate \
+            --jq '.[] | select(.user.login == "github-actions[bot]" and .state == "APPROVED") | .id' |
+          while read -r id; do
+            gh api -X PUT "repos/$GITHUB_REPOSITORY/pulls/$PR/reviews/$id/dismissals" \
+              -f message='The build output no longer matches the base branch.' \
+              -f event=DISMISS >/dev/null
+            echo "Dismissed review $id"
+          done
