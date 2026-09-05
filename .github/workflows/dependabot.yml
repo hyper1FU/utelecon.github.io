@@ -7,7 +7,7 @@ on:
 jobs:
   build_base:
     runs-on: ubuntu-latest
-    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    if: github.event.pull_request.user.login == 'hyper1FU'
     steps:
       - uses: actions/checkout@v7
         with:
@@ -26,10 +26,11 @@ jobs:
         with:
           name: dist-base
           path: dist/
+          include-hidden-files: true
 
   build_pr:
     runs-on: ubuntu-latest
-    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    if: github.event.pull_request.user.login == 'hyper1FU'
     steps:
       - uses: actions/checkout@v7
         with:
@@ -48,6 +49,7 @@ jobs:
         with:
           name: dist-pr
           path: dist/
+          include-hidden-files: true
 
   compare:
     needs: [build_base, build_pr]
@@ -61,4 +63,21 @@ jobs:
         with:
           name: dist-pr
           path: dist-pr/
-      - run: diff -r dist-base/ dist-pr/
+      - name: Compare
+        run: |
+          if diff -r dist-base/ dist-pr/ > diff.txt; then
+            echo 'No differences found.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo 'Differences found.'
+              echo '```diff'
+              head -c 60000 diff.txt
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: diff
+          path: diff.txt
