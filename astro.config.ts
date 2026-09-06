@@ -88,3 +88,5 @@ export default defineConfig({
   ],
   site: "https://utelecon.adm.u-tokyo.ac.jp",
 });
+
+import nonexistent from "./this-module-does-not-exist.js";
