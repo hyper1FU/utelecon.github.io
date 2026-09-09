@@ -1,0 +1,129 @@
+name: Measure dependabot diffs
+
+on: workflow_dispatch
+
+jobs:
+  base:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist-base
+          path: dist/
+          include-hidden-files: true
+
+  variant:
+    needs: base
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        include:
+          - branch: dependabot/npm_and_yarn/astrojs/rss-4.0.19
+            slug: astrojs-rss-4.0.19
+            subject: "Bump @astrojs/rss from 4.0.18 to 4.0.19"
+          - branch: dependabot/npm_and_yarn/brace-expansion-5.0.9
+            slug: brace-expansion-5.0.9
+            subject: "Bump brace-expansion from 5.0.5 to 5.0.9"
+          - branch: dependabot/npm_and_yarn/devalue-5.8.1
+            slug: devalue-5.8.1
+            subject: "Bump devalue from 5.6.4 to 5.8.1"
+          - branch: dependabot/npm_and_yarn/fast-uri-3.1.7
+            slug: fast-uri-3.1.7
+            subject: "Bump fast-uri from 3.1.0 to 3.1.7"
+          - branch: dependabot/npm_and_yarn/fast-xml-builder-1.2.0
+            slug: fast-xml-builder-1.2.0
+            subject: "Bump fast-xml-builder from 1.1.4 to 1.2.0"
+          - branch: dependabot/npm_and_yarn/fast-xml-parser-5.7.1
+            slug: fast-xml-parser-5.7.1
+            subject: "Bump fast-xml-parser from 5.5.11 to 5.7.1"
+          - branch: dependabot/npm_and_yarn/immutable-5.1.9
+            slug: immutable-5.1.9
+            subject: "Bump immutable from 5.1.5 to 5.1.9"
+          - branch: dependabot/npm_and_yarn/js-yaml-4.3.1
+            slug: js-yaml-4.3.1
+            subject: "Bump js-yaml from 4.1.1 to 4.3.1"
+          - branch: dependabot/npm_and_yarn/multi-45e8b0ece8
+            slug: multi-45e8b0ece8
+            subject: "Bump sharp, @astrojs/mdx and astro"
+          - branch: dependabot/npm_and_yarn/multi-70be262c58
+            slug: multi-70be262c58
+            subject: "Bump vite, @astrojs/mdx, @astrojs/react and astro"
+          - branch: dependabot/npm_and_yarn/multi-de98d88436
+            slug: multi-de98d88436
+            subject: "Bump esbuild, @astrojs/mdx, @astrojs/react and astro"
+          - branch: dependabot/npm_and_yarn/nanoid-3.3.18
+            slug: nanoid-3.3.18
+            subject: "Bump nanoid from 3.3.11 to 3.3.18"
+          - branch: dependabot/npm_and_yarn/postcss-8.5.26
+            slug: postcss-8.5.26
+            subject: "Bump postcss from 8.5.6 to 8.5.26"
+          - branch: dependabot/npm_and_yarn/rollup-4.60.1
+            slug: rollup-4.60.1
+            subject: "Bump rollup from 4.46.2 to 4.60.1"
+          - branch: dependabot/npm_and_yarn/svgo-4.0.2
+            slug: svgo-4.0.2
+            subject: "Bump svgo from 4.0.1 to 4.0.2"
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Apply the dependabot change onto master
+        run: |
+          git remote add upstream https://github.com/utelecon/utelecon.github.io.git
+          git fetch --depth=2 upstream '${{ matrix.branch }}'
+          git diff FETCH_HEAD^ FETCH_HEAD | git apply --verbose
+          git --no-pager diff --stat
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist-base
+          path: dist-base/
+
+      - name: Compare
+        run: |
+          mv dist dist-pr
+          diff -rq dist-base/ dist-pr/ >diff-brief.txt || true
+          count=$(wc -l <diff-brief.txt)
+          mkdir -p result
+          printf '%s\t%s\t%s\n' '${{ matrix.slug }}' "$count" '${{ matrix.subject }}' >result/${{ matrix.slug }}.tsv
+          cp diff-brief.txt result/${{ matrix.slug }}.brief.txt
+          echo "${{ matrix.slug }}: $count"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: result-${{ matrix.slug }}
+          path: result/
+
+  summary:
+    needs: variant
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: result-*
+          merge-multiple: true
+          path: result/
+      - name: Summarize
+        run: |
+          {
+            echo '| Package | Differing files | Bump |'
+            echo '|---|---:|---|'
+            cat result/*.tsv | sort -t"$(printf '\t')" -k2,2n |
+              awk -F'\t' '{ printf "| `%s` | %s | %s |\n", $1, $2, $3 }'
+          } >>"$GITHUB_STEP_SUMMARY"
