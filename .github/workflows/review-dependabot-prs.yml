@@ -17,7 +17,7 @@ concurrency:
 jobs:
   build_base:
     runs-on: ubuntu-latest
-    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    if: github.event.pull_request.user.login == 'hyper1FU'
     steps:
       # マージ後の状態と、その計算元になった master を比較する。
       # base.sha はイベント発生時点で固定される一方、マージ ref は別のタイミングで
@@ -42,7 +42,7 @@ jobs:
 
   build_pr:
     runs-on: ubuntu-latest
-    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    if: github.event.pull_request.user.login == 'hyper1FU'
     steps:
       - uses: actions/checkout@v7
         with:
@@ -62,7 +62,7 @@ jobs:
   compare:
     needs: [build_base, build_pr]
     runs-on: ubuntu-latest
-    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    if: github.event.pull_request.user.login == 'hyper1FU'
     steps:
       - uses: actions/download-artifact@v8
         with:

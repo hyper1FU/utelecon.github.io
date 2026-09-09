@@ -14,7 +14,7 @@ permissions:
 
 env:
   # 対象とする PR の作成者。review-dependabot-prs.yml のガードと揃える。
-  AUTHOR: dependabot[bot]
+  AUTHOR: hyper1FU
 
   # 差分がなかったときの動作を切り替える。
   #   comment  … コメントするだけ
